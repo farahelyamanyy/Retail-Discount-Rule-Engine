@@ -49,4 +49,14 @@ object DB {
     rows
   }
 
+  def truncateOrders(conn: Connection): Int = {
+    val stmt = conn.createStatement()
+    val sql = "TRUNCATE TABLE orders_processed"
+
+    val result = stmt.executeUpdate(sql)
+    stmt.close()
+
+    result
+  }
+
 }
