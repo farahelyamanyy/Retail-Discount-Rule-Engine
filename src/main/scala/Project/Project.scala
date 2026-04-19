@@ -26,197 +26,242 @@ object Project extends App{
 
   //========================================== Reading File  =========================================================
 
-  def readFile(fileName: String, codec: String = Codec.default.toString): List[String] = {
-    Source.fromFile(fileName, codec).getLines().toList
-  }
-
-  val orders : List[String] = readFile("src/main/scala/Project/TRX1000.csv").drop(1)
-  logger.info(s"[FILE] Loaded orders: ${orders.size}")
-
-  def splitLines(s: String) : List[String]={
-    s.split(",").toList
-  }
-
-  logger.debug(s"[PARSE] First parsed order: ${splitLines(orders.head)}")
-  //=========================================== Extracting Data ========================================================
-  def getData(t: List[String]): (String , String , String , Int, Double,String, String) = {
-    val transactinon_date: String= t.head
-    val product: String =  t(1)
-    val expiry_date: String = t(2)
-    val quantity: Int= t(3).toInt
-    val unit_price: Double= t(4).toDouble
-    val channel: String = t(5)
-    val payment_method: String = t(6)
-    (transactinon_date , product, expiry_date , quantity, unit_price, channel , payment_method)
-  }
-
-  def getDaysBetween(t_date: String , e_date: String): Int = {
-    val transaction_date = LocalDate.parse(t_date.split("T")(0))
-    val expire_date = LocalDate.parse(e_date)
-    ChronoUnit.DAYS.between(transaction_date, expire_date).toInt
-  }
-
-  def calculateOriginalPrice(quantity: Int , unit_price: Double): Double={
-    val result = quantity * unit_price
-    BigDecimal(result).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
-  }
-
-  //=========================================== Qualifying Rules  =====================================================
-  def isRule1Qualified(order: (String , String , String , Int, Double,String,String)): Boolean= {
-    val transaction_date: String = order._1
-    val expiry_date: String = order._3
-    val daysBetween = getDaysBetween(transaction_date,expiry_date)
-    daysBetween >= 0 && daysBetween < 30
-  }
-
-
-  def isRule2Qualified(order: (String , String , String , Int, Double,String,String)): Boolean= {
-    val product: String = order._2.split(" ")(0)
-    product == "Cheese" || product == "Wine"
-  }
-
-  def isRule3Qualified(order: (String , String , String , Int, Double,String,String)): Boolean= {
-    val transaction_date: String = order._1.split("T")(0)
-    transaction_date == "2023-03-22"
-  }
-
-  def isRule4Qualified(order: (String , String , String , Int, Double,String,String)): Boolean= {
-    val quantity: Int = order._4
-    if (quantity < 6 || quantity == 15) false
-    else true
-  }
-
-
-  //========================================= Calculation Rules =====================================================
-  def calculateRule1Discount(order: (String , String , String , Int, Double,String,String)) :Int= {
-    if (isRule1Qualified(order)) (30 - getDaysBetween(order._1, order._3))
-    else 0
-  }
-
-  //Get discount for the product > if wine>5% , if cheese>10%
-  def calculateRule2Discount(order: (String , String , String , Int, Double,String,String)) :Int= {
-    val product: String = order._2.split(" ")(0)
-    if (isRule2Qualified(order)) {
-      product match {
-        case "Cheese" => 10
-        case "Wine"   => 5
-        case _        => 0
-      }
-    } else 0
-  }
-
-  def calculateRule3Discount(order: (String , String , String , Int, Double,String,String)) :Int= {
-    if (isRule3Qualified(order)) 50
-    else 0
-  }
-
-
-  // Get discount for quantity
-  def calculateRule4Discount(order: (String , String , String , Int, Double,String,String)) :Int= {
-    val quantity: Int = order._4
-    if (isRule4Qualified(order)) {
-      quantity match {
-        case q if q >= 6 && q <= 9  => 5
-        case q if q >= 10 && q <= 14 => 7
-        case q if q > 15             => 10
-        case _                       => 0
-      }
-    } else 0
-  }
-
-  def calculateAllRules(order: (String , String , String , Int, Double,String,String)): List[Int] = {
-    List(
-      calculateRule1Discount(order),
-      calculateRule2Discount(order),
-      calculateRule3Discount(order),
-      calculateRule4Discount(order)
-    )
-  }
-
-
-//==================================== Calculating Final Discount & Price  ============================================
-
-  def getMax2Discounts(l : List[Int]): List[Int] = {
-    val top2 = l.sorted(Ordering[Int].reverse).take(2)
-    top2
-  }
-
-  def getAvgDiscount(l: List[Int]): Double={
-    l.sum / l.size.toDouble
-  }
-
-  def calc_final_discount(l:List[Int]): Double={
-    val nonZero = l.filter(_ != 0)
-
-    nonZero.length match {
-      case n if n > 1 =>
-        getAvgDiscount(getMax2Discounts(nonZero))
-
-      case 1 =>
-        nonZero.head.toDouble
-
-      case _ =>
-        0.0   // no discount
+  def readFile(fileName: String, codec: String = Codec.default.toString): Try[List[String]] = {
+    Using(Source.fromFile(fileName, codec)){ source =>
+      source.getLines().toList
     }
   }
 
-  def calculateFinalPrice(original_price: Double , discount: Double) : Double = {
-    val final_price = original_price - (original_price * (discount/100))
-    BigDecimal(final_price).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
-  }
+  //val orders : List[String] = readFile("src/main/scala/Project/TRX1000.csv").drop(1)
+  //logger.info(s"[FILE] Loaded orders: ${orders.size}")
 
-  //=============================================== Pipeline ==========================================================
+  type order= (String , String , String , Int, Double,String, String)
+  type result =  (order, Double, Double, Double)
 
-  logger.info("[PIPELINE] Starting processing orders...")
-  val startTime = System.currentTimeMillis()
+  def calculationEngine(filename: String): Try[List[result]]= {
+    def calculate(orders: List[String]): List[result]={
 
-  val results =
-    orders.
-      map(splitLines).
-      map(getData).
-      map { order =>
-        val discounts = calculateAllRules(order)
-        val discount = calc_final_discount(discounts)
-        val original = calculateOriginalPrice(order._4, order._5)
-        val finalPrice = calculateFinalPrice(original, discount)
-
-        (order, original, discount, finalPrice)
+      //Splitting lines
+      def splitLines(s: String) : List[String]={
+        s.split(",").toList
       }
 
-  val endTime = System.currentTimeMillis()
-  logger.info(s"[PIPELINE] Completed ${results.size} orders in ${endTime - startTime} ms")
+      logger.debug(s"[PARSE] First parsed order: ${splitLines(orders.head)}")
 
-  logger.info(
-    results.take(5).map { case (order,original, discount, finalPrice) =>
-        s"${order._2} → Discount: $discount% → Final: $finalPrice"
+      //=========================================== Extracting Data ==================================================
+
+      def getData(t: List[String]): (String , String , String , Int, Double,String, String) = {
+        val transactinon_date: String= t.head
+        val product: String =  t(1)
+        val expiry_date: String = t(2)
+        val quantity: Int= t(3).toInt
+        val unit_price: Double= t(4).toDouble
+        val channel: String = t(5)
+        val payment_method: String = t(6)
+        (transactinon_date , product, expiry_date , quantity, unit_price, channel , payment_method)
       }
-      .mkString("\n[SAMPLE RESULTS]:\n", "\n", "\n")
-  )
+
+      //Calculating days between Transaction date & Expiration date
+      def getDaysBetween(t_date: String , e_date: String): Int = {
+        val transaction_date = LocalDate.parse(t_date.split("T")(0))
+        val expire_date = LocalDate.parse(e_date)
+        ChronoUnit.DAYS.between(transaction_date, expire_date).toInt
+      }
+
+      //Calculating the original price before discount
+      def calculateOriginalPrice(quantity: Int , unit_price: Double): Double={
+        val result = quantity * unit_price
+        BigDecimal(result).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+      }
+
+      //=========================================== Qualifying Rules  =================================================
+
+      //Checking if order qualified for rule 1 discount
+      def isRule1Qualified(order: order): Boolean= {
+        val transaction_date: String = order._1
+        val expiry_date: String = order._3
+        val daysBetween = getDaysBetween(transaction_date,expiry_date)
+        daysBetween >= 0 && daysBetween < 30
+      }
 
 
-  //========================================== Database Insert ========================================================
-  logger.info(s"[DB] Starting Load for ${results.size} records")
+      //Checking if order qualified for rule 2 discount
+      def isRule2Qualified(order: order): Boolean= {
+        val product: String = order._2.split(" ")(0)
+        product == "Cheese" || product == "Wine"
+      }
 
-  val loading_result = DB.withConnection { conn =>
+      //Checking if order qualified for rule 3 discount
+      def isRule3Qualified(order: order): Boolean= {
+        val transaction_date: String = order._1.split("T")(0)
+        transaction_date == "2023-03-22"
+      }
 
-    logger.info("[DB] Truncating table...")
-    DB.truncateOrders(conn)
-    logger.info("[DB] Table truncated successfully")
+      //Checking if order qualified for rule 4 discount
+      def isRule4Qualified(order: order): Boolean= {
+        val quantity: Int = order._4
+        if (quantity < 6 || quantity == 15) false
+        else true
+      }
 
-    logger.info(s"[DB] Inserting ${results.size} records...")
+      //========================================= Calculation Rules =================================================
 
-    results.foreach { case (order, orig, disc, finalP) =>
-      DB.insertOrder(conn, order, orig, disc, finalP)
+      //Calculating discount for rule 1
+      def calculateRule1Discount(order: order) :Int= {
+        if (isRule1Qualified(order)) (30 - getDaysBetween(order._1, order._3))
+        else 0
+      }
+
+      //Calculating discount for rule 2
+      //Get discount for the product > if wine>5% , if cheese>10%
+      def calculateRule2Discount(order: order) :Int= {
+        val product: String = order._2.split(" ")(0)
+        if (isRule2Qualified(order)) {
+          product match {
+            case "Cheese" => 10
+            case "Wine"   => 5
+            case _        => 0
+          }
+        } else 0
+      }
+
+      //Calculating discount for rule 3
+      def calculateRule3Discount(order: order) :Int= {
+        if (isRule3Qualified(order)) 50
+        else 0
+      }
+
+
+      //Calculating discount for rule 4 > quantity
+      def calculateRule4Discount(order: order) :Int= {
+        val quantity: Int = order._4
+        if (isRule4Qualified(order)) {
+          quantity match {
+            case q if q >= 6 && q <= 9  => 5
+            case q if q >= 10 && q <= 14 => 7
+            case q if q > 15             => 10
+            case _                       => 0
+          }
+        } else 0
+      }
+
+      //General function > to call all 4 rules calculation
+      def calculateAllRules(order: order): List[Int] = {
+        List(
+          calculateRule1Discount(order),
+          calculateRule2Discount(order),
+          calculateRule3Discount(order),
+          calculateRule4Discount(order)
+        )
+      }
+
+
+      //==================================== Calculating Final Discount & Price  ====================================
+
+      // Getting the top 2 discounts
+      def getMax2Discounts(l : List[Int]): List[Int] = {
+        val top2 = l.sorted(Ordering[Int].reverse).take(2)
+        top2
+      }
+
+      def getAvgDiscount(l: List[Int]): Double={
+        l.sum / l.size.toDouble
+      }
+
+      // Calculating final discount percentage to apply on the order
+      def calc_final_discount(l:List[Int]): Double={
+        val nonZero = l.filter(_ != 0)
+
+        nonZero.length match {
+          case n if n > 1 =>
+            getAvgDiscount(getMax2Discounts(nonZero))
+
+          case 1 =>
+            nonZero.head.toDouble
+
+          case _ =>
+            0.0   // no discount
+        }
+      }
+
+      // Calculating final price after applying the final discount
+      def calculateFinalPrice(original_price: Double , discount: Double) : Double = {
+        val final_price = original_price - (original_price * (discount/100))
+        BigDecimal(final_price).setScale(2, BigDecimal.RoundingMode.HALF_UP).toDouble
+      }
+
+      //=============================================== Pipeline ====================================================
+
+      logger.info("[PIPELINE] Starting processing orders...")
+      val startTime = System.currentTimeMillis()
+
+      val results = orders.
+        map(splitLines).
+        map(getData).
+        map { order =>
+          val discounts = calculateAllRules(order)
+          val discount = calc_final_discount(discounts)
+          val original = calculateOriginalPrice(order._4, order._5)
+          val finalPrice = calculateFinalPrice(original, discount)
+
+          (order, original, discount, finalPrice)
+        }
+
+
+      val endTime = System.currentTimeMillis()
+      logger.info(s"[PIPELINE] Completed ${results.size} orders in ${endTime - startTime} ms")
+
+      logger.info(
+        results.take(5).map { case (order,original, discount, finalPrice) =>
+            s"${order._2} → Original Price before discount: $original → Discount: $discount% → Final: $finalPrice"
+          }
+          .mkString("\n[SAMPLE RESULTS]:\n", "\n", "\n")
+      )
+      results
     }
+
+    val orders: Try[List[String]] = readFile(filename)
+    orders match {
+      case Success(list) => logger.info(s"[FILE] Loaded orders: ${list.size}")
+      case Failure(_)    => logger.error("[FILE] Failed to load orders")
+    }
+    orders.map(_.drop(1)).map(calculate)
+
   }
 
-  loading_result match {
-    case scala.util.Success(_) =>
-      logger.info("[DB] Data inserted successfully!")
-      logger.info("RULES ENGINE FINISHED SUCCESSFULLY")
+  //======================================= Calling fun & Inserting ==================================================
 
+  val filename: String = "src/main/scala/Project/TRX1000.csv"
+  calculationEngine(filename) match{
+    // if function succeeded > insert results into table
+    case Success(results) => {
+      logger.info(s"[DB] Starting Load for ${results.size} records")
+
+      val loading_result = DB.withConnection { conn =>
+
+        logger.info("[DB] Truncating table...")
+        DB.truncateOrders(conn)
+        logger.info("[DB] Table truncated successfully")
+
+        logger.info(s"[DB] Inserting ${results.size} records...")
+
+        results.foreach { case (order, orig, disc, finalP) =>
+          DB.insertOrder(conn, order, orig, disc, finalP)
+        }
+      }
+
+      loading_result match {
+        case scala.util.Success(_) =>
+          logger.info("[DB] Data inserted successfully!")
+          logger.info("RULES ENGINE FINISHED SUCCESSFULLY")
+
+        case scala.util.Failure(ex) =>
+          logger.error(s"[DB] Insert failed: ${ex.getMessage}")
+          logger.error("RULES ENGINE FINISHED WITH FAILURE")
+      }
+  }
+    // if function failed > log the error
     case scala.util.Failure(ex) =>
-      logger.error(s"[DB] Insert failed: ${ex.getMessage}")
       logger.error("RULES ENGINE FINISHED WITH FAILURE")
   }
 }
