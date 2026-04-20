@@ -7,7 +7,7 @@ import scala.util.{Failure, Success, Try, Using}
 
 object Project extends App{
 
-  //======================================= Database Connection ======================================================
+  //======================================= Testing Database Connection ===============================================
   val logger = LoggerFactory.getLogger("RulesEngine")
   logger.info("Engine started")
 
@@ -32,11 +32,10 @@ object Project extends App{
     }
   }
 
-  //val orders : List[String] = readFile("src/main/scala/Project/TRX1000.csv").drop(1)
-  //logger.info(s"[FILE] Loaded orders: ${orders.size}")
-
   type order= (String , String , String , Int, Double,String, String)
+  type OrderWithDiscount = (String, String, String, Int, Double, String, String, Double)
   type result =  (order, Double, Double, Double)
+  type Rule = (order => Boolean, order => Int)
 
   def calculationEngine(filename: String): Try[List[result]]= {
     def calculate(orders: List[String]): List[result]={
@@ -94,14 +93,13 @@ object Project extends App{
       //Checking if order qualified for rule 3 discount
       def isRule3Qualified(order: order): Boolean= {
         val transaction_date: String = order._1.split("T")(0)
-        transaction_date == "2023-03-22"
+        transaction_date == "2023-03-23"
       }
 
       //Checking if order qualified for rule 4 discount
       def isRule4Qualified(order: order): Boolean= {
         val quantity: Int = order._4
-        if (quantity < 6 || quantity == 15) false
-        else true
+        quantity >= 6
       }
 
       //========================================= Calculation Rules =================================================
@@ -139,50 +137,39 @@ object Project extends App{
           quantity match {
             case q if q >= 6 && q <= 9  => 5
             case q if q >= 10 && q <= 14 => 7
-            case q if q > 15             => 10
-            case _                       => 0
+            case _            => 10
           }
         } else 0
       }
 
-      //General function > to call all 4 rules calculation
-      def calculateAllRules(order: order): List[Int] = {
+
+      //==================================== Calculating Final Discount & Price  ====================================
+      def getDiscountRules(): List[Rule] = {
         List(
-          calculateRule1Discount(order),
-          calculateRule2Discount(order),
-          calculateRule3Discount(order),
-          calculateRule4Discount(order)
+          (isRule1Qualified, calculateRule1Discount),
+          (isRule2Qualified, calculateRule2Discount),
+          (isRule3Qualified, calculateRule3Discount),
+          (isRule4Qualified, calculateRule4Discount)
+
         )
       }
 
+      def getOrdersWithDiscount(r: order, rules: List[Rule]): OrderWithDiscount = {
 
-      //==================================== Calculating Final Discount & Price  ====================================
+        val discounts =
+          rules
+            .filter { case (qualify, _) => qualify(r) }
+            .map { case (_, getDiscount) => getDiscount(r) }
+            .sorted
+            .take(2)
 
-      // Getting the top 2 discounts
-      def getMax2Discounts(l : List[Int]): List[Int] = {
-        val top2 = l.sorted(Ordering[Int].reverse).take(2)
-        top2
+        val discount =
+          if (discounts.nonEmpty) discounts.sum / discounts.size.toDouble
+          else 0.0
+
+        (r._1, r._2, r._3, r._4, r._5, r._6, r._7, discount)
       }
 
-      def getAvgDiscount(l: List[Int]): Double={
-        l.sum / l.size.toDouble
-      }
-
-      // Calculating final discount percentage to apply on the order
-      def calc_final_discount(l:List[Int]): Double={
-        val nonZero = l.filter(_ != 0)
-
-        nonZero.length match {
-          case n if n > 1 =>
-            getAvgDiscount(getMax2Discounts(nonZero))
-
-          case 1 =>
-            nonZero.head.toDouble
-
-          case _ =>
-            0.0   // no discount
-        }
-      }
 
       // Calculating final price after applying the final discount
       def calculateFinalPrice(original_price: Double , discount: Double) : Double = {
@@ -199,8 +186,8 @@ object Project extends App{
         map(splitLines).
         map(getData).
         map { order =>
-          val discounts = calculateAllRules(order)
-          val discount = calc_final_discount(discounts)
+          val orderWithDiscount = getOrdersWithDiscount(order,getDiscountRules())
+          val discount = orderWithDiscount._8
           val original = calculateOriginalPrice(order._4, order._5)
           val finalPrice = calculateFinalPrice(original, discount)
 
@@ -233,6 +220,10 @@ object Project extends App{
 
   val filename: String = "src/main/scala/Project/TRX1000.csv"
   calculationEngine(filename) match{
+    // if function failed > log the error
+    case scala.util.Failure(ex) =>
+      logger.error("RULES ENGINE FINISHED WITH FAILURE")
+
     // if function succeeded > insert results into table
     case Success(results) => {
       logger.info(s"[DB] Starting Load for ${results.size} records")
@@ -244,7 +235,6 @@ object Project extends App{
         logger.info("[DB] Table truncated successfully")
 
         logger.info(s"[DB] Inserting ${results.size} records...")
-
         results.foreach { case (order, orig, disc, finalP) =>
           DB.insertOrder(conn, order, orig, disc, finalP)
         }
@@ -259,10 +249,7 @@ object Project extends App{
           logger.error(s"[DB] Insert failed: ${ex.getMessage}")
           logger.error("RULES ENGINE FINISHED WITH FAILURE")
       }
-  }
-    // if function failed > log the error
-    case scala.util.Failure(ex) =>
-      logger.error("RULES ENGINE FINISHED WITH FAILURE")
+    }
   }
 }
 
