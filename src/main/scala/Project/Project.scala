@@ -83,14 +83,13 @@ object Project extends App{
         daysBetween >= 0 && daysBetween < 30
       }
 
-
       //Checking if order qualified for rule 2 discount
       def isRule2Qualified(order: order): Boolean= {
         val product: String = order._2.split(" ")(0)
         product == "Cheese" || product == "Wine"
       }
 
-      //Checking if order qualified for rule 3 discount
+      //Checking if order qualified for rule 3 discount > placed on 23rd of March
       def isRule3Qualified(order: order): Boolean= {
         val transaction_date: String = order._1.split("T")(0)
         transaction_date == "2023-03-23"
@@ -102,45 +101,69 @@ object Project extends App{
         quantity >= 6
       }
 
-      //========================================= Calculation Rules =================================================
-
-      //Calculating discount for rule 1
-      def calculateRule1Discount(order: order) :Int= {
-        if (isRule1Qualified(order)) (30 - getDaysBetween(order._1, order._3))
-        else 0
+      //Checking if order qualified for rule 5 discount > orders made through the App
+      def isRule5Qualified(order: order): Boolean= {
+        val channel: String = order._6
+        channel == "App"
       }
 
-      //Calculating discount for rule 2
+      //Checking if order qualified for rule 6 discount > orders made using Visa cards
+      def isRule6Qualified(order: order): Boolean= {
+        val payment_method: String = order._7
+        payment_method == "Visa"
+      }
+
+      //========================================= Calculation Rules =================================================
+
+      //Calculating discount for rule 1 > days between
+      def calculateRule1Discount(order: order) :Int=
+        if (isRule1Qualified(order)) (30 - getDaysBetween(order._1, order._3)) else 0
+
+      //Calculating discount for rule 2 > product
       //Get discount for the product > if wine>5% , if cheese>10%
       def calculateRule2Discount(order: order) :Int= {
-        val product: String = order._2.split(" ")(0)
         if (isRule2Qualified(order)) {
+          val product: String = order._2.split(" ")(0)
           product match {
             case "Cheese" => 10
             case "Wine"   => 5
             case _        => 0
           }
-        } else 0
-      }
-
-      //Calculating discount for rule 3
-      def calculateRule3Discount(order: order) :Int= {
-        if (isRule3Qualified(order)) 50
+        }
         else 0
       }
+
+      //Calculating discount for rule 3 > transaction date
+      def calculateRule3Discount(order: order) :Int =
+        if (isRule3Qualified(order)) 50 else 0
 
 
       //Calculating discount for rule 4 > quantity
       def calculateRule4Discount(order: order) :Int= {
-        val quantity: Int = order._4
         if (isRule4Qualified(order)) {
+          val quantity: Int = order._4
           quantity match {
             case q if q >= 6 && q <= 9  => 5
             case q if q >= 10 && q <= 14 => 7
             case _            => 10
           }
-        } else 0
+        }
+        else 0
       }
+
+      //Calculating discount for rule 5 > channel
+      def calculateRule5Discount(order: order) :Int= {
+        if (isRule5Qualified(order)){
+          val quantity: Int = order._4
+          val buckets = Math.ceil(quantity / 5.0).toInt
+          buckets * 5
+        }
+        else 0
+      }
+
+      //Calculating discount for rule 6 > payment method
+      def calculateRule6Discount(order: order) :Int =
+        if (isRule6Qualified(order)) 5 else 0
 
 
       //==================================== Calculating Final Discount & Price  ====================================
@@ -149,8 +172,9 @@ object Project extends App{
           (isRule1Qualified, calculateRule1Discount),
           (isRule2Qualified, calculateRule2Discount),
           (isRule3Qualified, calculateRule3Discount),
-          (isRule4Qualified, calculateRule4Discount)
-
+          (isRule4Qualified, calculateRule4Discount),
+          (isRule5Qualified, calculateRule5Discount),
+          (isRule6Qualified, calculateRule6Discount)
         )
       }
 
@@ -160,7 +184,7 @@ object Project extends App{
           rules
             .filter { case (qualify, _) => qualify(r) }
             .map { case (_, getDiscount) => getDiscount(r) }
-            .sorted
+            .sortBy(-_)
             .take(2)
 
         val discount =
@@ -213,12 +237,11 @@ object Project extends App{
       case Failure(_)    => logger.error("[FILE] Failed to load orders")
     }
     orders.map(_.drop(1)).map(calculate)
-
   }
 
   //======================================= Calling fun & Inserting ==================================================
 
-  val filename: String = "src/main/scala/Project/TRX1000.csv"
+  val filename: String = "TRX1000.csv"
   calculationEngine(filename) match{
     // if function failed > log the error
     case scala.util.Failure(ex) =>
