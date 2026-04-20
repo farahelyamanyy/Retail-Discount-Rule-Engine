@@ -50,14 +50,14 @@ object Project extends App{
       //=========================================== Extracting Data ==================================================
 
       def getData(t: List[String]): (String , String , String , Int, Double,String, String) = {
-        val transactinon_date: String= t.head
+        val transaction_date: String= t.head
         val product: String =  t(1)
         val expiry_date: String = t(2)
         val quantity: Int= t(3).toInt
         val unit_price: Double= t(4).toDouble
         val channel: String = t(5)
         val payment_method: String = t(6)
-        (transactinon_date , product, expiry_date , quantity, unit_price, channel , payment_method)
+        (transaction_date , product, expiry_date , quantity, unit_price, channel , payment_method)
       }
 
       //Calculating days between Transaction date & Expiration date
@@ -258,9 +258,7 @@ object Project extends App{
         logger.info("[DB] Table truncated successfully")
 
         logger.info(s"[DB] Inserting ${results.size} records...")
-        results.foreach { case (order, orig, disc, finalP) =>
-          DB.insertOrder(conn, order, orig, disc, finalP)
-        }
+        DB.insertOrders(conn, results)
       }
 
       loading_result match {

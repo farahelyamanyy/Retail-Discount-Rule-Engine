@@ -22,12 +22,9 @@ object DB {
     }
   }
 
-  def insertOrder(
+  def insertOrders(
                    conn: Connection,
-                   order: (String, String, String, Int, Double, String, String),
-                   originalPrice: Double,
-                   discount: Double,
-                   finalPrice: Double
+                   orders: Seq[((String, String, String, Int, Double, String, String), Double, Double, Double)]
                  ): Int = {
 
     val sql =
@@ -39,20 +36,25 @@ object DB {
 
     val stmt = conn.prepareStatement(sql)
 
-    stmt.setTimestamp(1, Timestamp.from(Instant.parse(order._1)))
-    stmt.setString(2, order._2)
-    stmt.setDate(3, java.sql.Date.valueOf(order._3))
-    stmt.setInt(4, order._4)
-    stmt.setDouble(5, order._5)
-    stmt.setString(6, order._6)
-    stmt.setString(7, order._7)
-    stmt.setDouble(8, originalPrice)
-    stmt.setDouble(9, discount)
-    stmt.setDouble(10, finalPrice)
+    orders.foreach { case (order, originalPrice, discount, finalPrice) =>
 
-    val rows = stmt.executeUpdate()
+      stmt.setTimestamp(1, Timestamp.from(Instant.parse(order._1)))
+      stmt.setString(2, order._2)
+      stmt.setDate(3, java.sql.Date.valueOf(order._3))
+      stmt.setInt(4, order._4)
+      stmt.setDouble(5, order._5)
+      stmt.setString(6, order._6)
+      stmt.setString(7, order._7)
+      stmt.setDouble(8, originalPrice)
+      stmt.setDouble(9, discount)
+      stmt.setDouble(10, finalPrice)
+
+      stmt.addBatch()
+    }
+
+    val result = stmt.executeBatch()
     stmt.close()
-    rows
+    result.sum
   }
 
   def truncateOrders(conn: Connection): Int = {
