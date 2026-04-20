@@ -3,11 +3,17 @@ import java.sql.{Connection, DriverManager}
 import scala.util.{Try, Using}
 import java.time.Instant
 import java.sql.Timestamp
+import com.typesafe.config.ConfigFactory
 
 object DB {
-  val url : String= "jdbc:oracle:thin:@localhost:1521:XE"
-  val user : String= "scala_project"
-  val password : String= "123"
+
+
+
+  val config = ConfigFactory.load()
+
+  val url : String= config.getString("db.url")
+  val user : String= config.getString("db.user")
+  val password :String =  config.getString("db.password")
 
   //[A] means it can work with any type and return it
   def withConnection[A](f: Connection => A): Try[A] = {
