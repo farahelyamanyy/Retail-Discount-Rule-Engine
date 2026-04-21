@@ -6,9 +6,6 @@ import java.sql.Timestamp
 import com.typesafe.config.ConfigFactory
 
 object DB {
-
-
-
   val config = ConfigFactory.load()
 
   val url : String= config.getString("db.url")
@@ -22,10 +19,7 @@ object DB {
     }
   }
 
-  def insertOrders(
-                   conn: Connection,
-                   orders: Seq[((String, String, String, Int, Double, String, String), Double, Double, Double)]
-                 ): Int = {
+  def insertOrders( conn: Connection, orders: List[ProcessedOrder] ): Int = {
 
     val sql =
       """INSERT INTO orders_processed
@@ -36,18 +30,18 @@ object DB {
 
     val stmt = conn.prepareStatement(sql)
 
-    orders.foreach { case (order, originalPrice, discount, finalPrice) =>
+    orders.foreach { po =>
 
-      stmt.setTimestamp(1, Timestamp.from(Instant.parse(order._1)))
-      stmt.setString(2, order._2)
-      stmt.setDate(3, java.sql.Date.valueOf(order._3))
-      stmt.setInt(4, order._4)
-      stmt.setDouble(5, order._5)
-      stmt.setString(6, order._6)
-      stmt.setString(7, order._7)
-      stmt.setDouble(8, originalPrice)
-      stmt.setDouble(9, discount)
-      stmt.setDouble(10, finalPrice)
+      stmt.setTimestamp(1, Timestamp.from(Instant.parse(po.order.transactionDate)))
+      stmt.setString(2, po.order.productName)
+      stmt.setDate(3, java.sql.Date.valueOf(po.order.expiryDate))
+      stmt.setInt(4, po.order.quantity)
+      stmt.setDouble(5, po.order.unitPrice)
+      stmt.setString(6, po.order.channel)
+      stmt.setString(7, po.order.paymentMethod)
+      stmt.setDouble(8, po.originalPrice)
+      stmt.setDouble(9, po.discount)
+      stmt.setDouble(10, po.finalPrice)
 
       stmt.addBatch()
     }

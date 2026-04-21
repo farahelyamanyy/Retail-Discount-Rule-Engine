@@ -3,16 +3,11 @@ src/main/resources/application.conf
 target/
 project/target/
 project/project/
+.idea/
+.bsp/
 
 ### Logs ###
 logs/
 
-### IDE ###
-.idea/
-*.iml
-
 ### OS ###
 .DS_Store
-
-### Scala ###
-.bsp/
