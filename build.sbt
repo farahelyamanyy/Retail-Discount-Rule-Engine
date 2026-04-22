@@ -5,7 +5,7 @@ ThisBuild / scalaVersion := "2.13.13"
 scalacOptions ++= Seq("-language:implicitConversions", "-deprecation")
 lazy val root = (project in file("."))
   .settings(
-    name := "ScalaProject"
+    name := "Retail-Discount-Rule-Engine"
   )
 libraryDependencies += "org.scalameta" %% "munit" % "0.7.29" % Test
 libraryDependencies += "com.oracle.database.jdbc" % "ojdbc8" % "19.3.0.0"
