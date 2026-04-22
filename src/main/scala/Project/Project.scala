@@ -30,7 +30,7 @@ object Project extends App {
   logger.info("Engine started")
 
   // Configuration Constants
-  val filename: String = "TRX1000.csv"
+  val filename: String = "TRX10M.csv"
   val batchSize: Int = 50000 // Number of rows to process in memory at once
 
   // Define Rule Type
