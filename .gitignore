@@ -6,6 +6,10 @@ project/project/
 .idea/
 .bsp/
 
+### Data ###
+TRX1000.csv
+TRX10M.csv
+
 ### Logs ###
 logs/
 
